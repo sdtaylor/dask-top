@@ -65,29 +65,6 @@ The software was conceived with the vision of being able to stress test your\
 computer without the need for a GUI\n\
 "
 
-
-class GraphMode:
-    """
-    A class responsible for storing the data related to 
-    the current mode of operation
-    """
-
-    def __init__(self):
-        self.modes = [
-            'Regular Operation',
-            ]
-        self.data = {}
-
-        self.current_mode = self.modes[0]
-
-    def get_modes(self):
-        return self.modes
-
-    def set_mode(self, m):
-        self.current_mode = m
-        return True
-
-
 class GraphData:
     THRESHOLD_TEMP = 80
 
@@ -110,7 +87,6 @@ class GraphData:
         # Data for graphs
         self.cpu_util = [0] * graph_num_bars
         self.mem_util = [0] * graph_num_bars
-        self.cpu_freq = [0] * graph_num_bars
         # Data for statistics
         self.n_workers = self.num_workers()
         self.total_mem = self.currentValue['Memory']['total_memory']
@@ -132,8 +108,7 @@ class GraphData:
         
     def reset(self):
         self.cpu_util = [0] * self.graph_num_bars
-        self.cpu_temp = [0] * self.graph_num_bars
-        self.cpu_freq = [0] * self.graph_num_bars
+        self.mem_util = [0] * self.graph_num_bars
         
         self.mem_max_value = 0
         self.total_mem  = 0
@@ -269,7 +244,6 @@ class GraphView(urwid.WidgetPlaceholder):
         self.temp_color = (['bg background', 'temp dark', 'temp light'],
                            {(1, 0): 'temp dark smooth', (2, 0): 'temp light smooth'},
                            'line')
-        self.mode_buttons = []
 
         self.graph_data = GraphData(0, dask_address = dask_address)
         self.graph_cpu = []
@@ -376,35 +350,6 @@ class GraphView(urwid.WidgetPlaceholder):
                                              ('fixed left', 3), self.help_menu.get_size()[1],
                                              ('fixed top', 2), self.help_menu.get_size()[0])
 
-    def on_mode_button(self, button, state):
-        """Notify the controller of a new mode setting."""
-
-        self.last_offset = None
-
-    def on_mode_change(self, m):
-        """Handle external mode change by updating radio buttons."""
-        for rb in self.mode_buttons:
-            if rb.get_label() == m:
-                rb.set_state(True, do_callback=False)
-                break
-        self.last_offset = None
-
-    def on_unicode_checkbox(self, w, state):
-
-        if state:
-            satt = {(1, 0): 'util light smooth', (2, 0): 'util dark smooth'}
-        else:
-            satt = None
-        self.graph_cpu.bar_graph.set_segment_attributes(['bg background', 'util light', 'util dark'], satt=satt)
-
-        if state:
-            satt = {(1, 0): 'freq dark smooth', (2, 0): 'freq light smooth'}
-        else:
-            satt = None
-        self.graph_freq.bar_graph.set_segment_attributes(['bg background', 'freq dark', 'freq light'], satt=satt)
-
-        self.update_graph(True)
-
     def bar_graph(self, color_a, color_b, title, x_label, y_label):
 
         w = ScalableBarGraph(['bg background', color_a, color_b])
@@ -426,33 +371,16 @@ class GraphView(urwid.WidgetPlaceholder):
         raise urwid.ExitMainLoop()
 
     def graph_controls(self):
-        modes = self.controller.get_modes()
-        # setup mode radio buttons
-        group = []
-        for m in modes:
-            rb = self.radio_button(group, m, self.on_mode_button)
-            self.mode_buttons.append(rb)
         self.offset = 0
         animate_controls = urwid.GridFlow([
             self.button("Reset", self.on_reset_button),
             self.button('Help', self.on_help_menu_open),
         ], 18, 2, 0, 'center')
 
-        if urwid.get_encoding_mode() == "utf8":
-            unicode_checkbox = urwid.CheckBox(
-                "Smooth Graph (Unicode Graphics)",
-                on_state_change=self.on_unicode_checkbox)
-        else:
-            unicode_checkbox = urwid.Text(
-                "UTF-8 encoding not detected")
-
-        buttons = [urwid.Text("Mode", align="center"),
-                   ] + self.mode_buttons + [
+        buttons = [
             urwid.Divider(),
             urwid.Text("Control Options", align="center"),
             animate_controls,
-            urwid.Divider(),
-            urwid.LineBox(unicode_checkbox),
             urwid.Divider(),
             urwid.LineBox(urwid.Pile([
                 urwid.Text("Placeholder #1", align ='left'),
@@ -526,24 +454,8 @@ class GraphController:
     def __init__(self, dask_address):
         self.loop = []
         self.animate_alarm = None
-        self.mode = GraphMode()
         self.view = GraphView(self, dask_address = dask_address)
-        # use the first mode as the default
-        mode = self.get_modes()[0]
-        self.mode.set_mode(mode)
-        # update the view
-        self.view.on_mode_change(mode)
         self.view.update_graph(True)
-
-    def get_modes(self):
-        """Allow our view access to the list of modes."""
-        return self.mode.get_modes()
-
-    def set_mode(self, m):
-        """Allow our view to set the mode."""
-        rval = self.mode.set_mode(m)
-        self.view.update_graph(True)
-        return rval
 
     def main(self):
         self.loop = urwid.MainLoop(self.view, self.view.palette)
