@@ -25,7 +25,6 @@ from __future__ import print_function
 import urwid
 from ComplexBarGraphs import ScalableBarGraph
 from ComplexBarGraphs import LabeledBarGraph
-from StressMenu import StressMenu
 from HelpMenu import HelpMenu
 
 import psutil
@@ -75,12 +74,10 @@ class GraphMode:
     def __init__(self):
         self.modes = [
             'Regular Operation',
-            'Stress Operation',
             ]
         self.data = {}
 
         self.current_mode = self.modes[0]
-        self.stress_process = None
 
     def get_modes(self):
         return self.modes
@@ -284,9 +281,7 @@ class GraphView(urwid.WidgetPlaceholder):
 
         self.main_window_w = []
 
-        self.stress_menu = StressMenu(self.on_stress_menu_close)
         self.help_menu = HelpMenu(self.on_help_menu_close)
-        self.stress_menu.sqrt_workers = str(self.graph_data.core_num)
 
         urwid.WidgetPlaceholder.__init__(self, self.main_window())
 
@@ -417,16 +412,8 @@ class GraphView(urwid.WidgetPlaceholder):
         self.graph_data.reset()
         self.update_graph(True)
 
-    def on_stress_menu_close(self):
-        self.original_widget = self.main_window_w
-
     def on_help_menu_close(self):
         self.original_widget = self.main_window_w
-
-    def on_stress_menu_open(self, w):
-        self.original_widget = urwid.Overlay(self.stress_menu.main_window, self.original_widget,
-                                             ('fixed left', 3), self.stress_menu.get_size()[1],
-                                             ('fixed top', 2), self.stress_menu.get_size()[0])
 
     def on_help_menu_open(self, w):
         self.original_widget = urwid.Overlay(self.help_menu.main_window, self.original_widget,
@@ -435,62 +422,6 @@ class GraphView(urwid.WidgetPlaceholder):
 
     def on_mode_button(self, button, state):
         """Notify the controller of a new mode setting."""
-
-        def start_stress(mode):
-            if mode == 'Stress Operation':
-                stress_cmd = ['stress']
-
-                if int(self.stress_menu.sqrt_workers) > 0:
-                    stress_cmd.append('-c')
-                    stress_cmd.append(self.stress_menu.sqrt_workers)
-
-                if int(self.stress_menu.sync_workers) > 0:
-                    stress_cmd.append('-i')
-                    stress_cmd.append(self.stress_menu.sync_workers)
-
-                if int(self.stress_menu.memory_workers) > 0:
-                    stress_cmd.append('--vm')
-                    stress_cmd.append(self.stress_menu.memory_workers)
-                    stress_cmd.append('--vm-bytes')
-                    stress_cmd.append(self.stress_menu.malloc_byte)
-                    stress_cmd.append('--vm-stride')
-                    stress_cmd.append(self.stress_menu.byte_touch_cnt)
-
-                if self.stress_menu.no_malloc:
-                    stress_cmd.append('--vm-keep')
-
-                if int(self.stress_menu.write_workers) > 0:
-                    stress_cmd.append('--hdd')
-                    stress_cmd.append(self.stress_menu.write_workers)
-                    stress_cmd.append('--hdd-bytes')
-                    stress_cmd.append(self.stress_menu.write_bytes)
-
-                if self.stress_menu.time_out != 'none':
-                    stress_cmd.append('-t')
-                    stress_cmd.append(self.stress_menu.time_out)
-
-                with open(os.devnull, 'w') as DEVNULL:
-                    try:
-                        self.stress_process = subprocess.Popen(stress_cmd,
-                                                               stdout=DEVNULL, stderr=DEVNULL, shell=False)
-                        self.stress_process = psutil.Process(self.stress_process.pid)
-                    except:
-                        logging.error ("Unable to start stress")
-
-                self.graph_data.max_perf_lost = 0
-                self.graph_data.samples_taken = 0
-            else:
-                try:
-                    # Kill all the subprocess of stress
-                    for proc in self.stress_process.children(recursive=True):
-                        proc.kill()
-                except:
-                    print('Could not kill process')
-
-        if state:
-            # The new mode is the label of the button
-            self.controller.set_mode(button.get_label())
-            start_stress(self.controller.mode.current_mode)
 
         self.last_offset = None
 
@@ -538,12 +469,6 @@ class GraphView(urwid.WidgetPlaceholder):
         return w
 
     def exit_program(self, w):
-        try:
-            # Kill all the subprocess of stress
-            for proc in self.stress_process.children(recursive=True):
-                proc.kill()
-        except:
-            print('Could not kill process')
         raise urwid.ExitMainLoop()
 
     def graph_controls(self):
@@ -556,7 +481,6 @@ class GraphView(urwid.WidgetPlaceholder):
         self.offset = 0
         animate_controls = urwid.GridFlow([
             self.button("Reset", self.on_reset_button),
-            self.button('Stress Options', self.on_stress_menu_open),
             self.button('Help', self.on_help_menu_open),
         ], 18, 2, 0, 'center')
 
