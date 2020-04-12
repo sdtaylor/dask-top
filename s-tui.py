@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-# Copyright (C) 2017 Alex Manuskin, Gil Tsuker
+# Copyright (C) 2020 Shawn Taylor
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -15,12 +15,10 @@
 # You should have received a copy of the GNU General Public License
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 #
-# This implementation was inspired by Ian Ward
-# Urwid web site: http://excess.org/urwid/
+# This implementation was modified from version 0.1 of s-tui
+# See https://github.com/amanusk/s-tui
 
-"""An urwid program to stress and monitor you computer"""
-
-from __future__ import print_function
+"""A CLI interface for view dask distributed scheduler statistics"""
 
 import urwid
 from ComplexBarGraphs import ScalableBarGraph
@@ -29,45 +27,23 @@ from HelpMenu import HelpMenu
 
 from dask.distributed import Client
 
-import psutil
 import time
-import subprocess
-import ctypes
-import os
 import argparse
 import logging
-from aux import read_msr
 
 # Constants
 UPDATE_INTERVAL = 0.2
-DEGREE_SIGN = u'\N{DEGREE SIGN}'
-TURBO_MSR = 429
-WAIT_SAMPLES = 5
 
-log_file = "_s-tui.log"
+log_file = "_dask-top.log"
 
 VERSION = 0.1
-VERSION_MESSAGE = " s-tui " + str(VERSION) +\
-                  " - (C) 2017 Alex Manuskin, Gil Tsuker\n\
-                  Relased under GNU GPLv2"
+VERSION_MESSAGE = " dask-top " + str(VERSION)
 
 # globals
 
-INTRO_MESSAGE = "\
-********s-tui manual********\n\
--Alex Manuskin      alex.manuskin@gmail.com\n\
--Gil Tsuker         \n\
-April 2017\n\
-\n\
-s-tui is a terminal UI add-on for stress. The software uses stress to run CPU\
-hogs, while monitoring the CPU usage, temperature and frequency.\n\
-The software was conceived with the vision of being able to stress test your\
-computer without the need for a GUI\n\
-"
+INTRO_MESSAGE = "dask-top is a CLI program to view the status of a dask.distributed cluser"
 
 class GraphData:
-    THRESHOLD_TEMP = 80
-
     def __init__(self, graph_num_bars, dask_address):
         self.dask_client = Client(address = dask_address)        
         
