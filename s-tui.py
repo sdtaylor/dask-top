@@ -27,6 +27,8 @@ from ComplexBarGraphs import ScalableBarGraph
 from ComplexBarGraphs import LabeledBarGraph
 from HelpMenu import HelpMenu
 
+from dask.distributed import Client
+
 import psutil
 import time
 import subprocess
@@ -37,7 +39,7 @@ import logging
 from aux import read_msr
 
 # Constants
-UPDATE_INTERVAL = 1
+UPDATE_INTERVAL = 0.2
 DEGREE_SIGN = u'\N{DEGREE SIGN}'
 TURBO_MSR = 429
 WAIT_SAMPLES = 5
@@ -89,7 +91,7 @@ class GraphMode:
 class GraphData:
     THRESHOLD_TEMP = 80
 
-    def __init__(self, graph_num_bars):
+    def __init__(self, graph_num_bars, dask_address):
         # Constants data
         self.temp_max_value = 100
         self.util_max_value = 100
@@ -122,15 +124,24 @@ class GraphData:
                 self.turbo_freq = False
             except:
                 logging.error("Top frequency is not supported")
+        
+        self.dask_client = Client(address = dask_address)
+        self.currentValue = {'Memory' :{'total_memory':0,
+                                        'used_memory':0},
+                             'CPU'    :{'cpu_usage':0},
+                             'Cluster':{'n_workers':0,
+                                        'total_threads':0},
+                             'Workers':[]}
 
     def update_util(self):
+        self.update_dask_values()
         try:
             last_value = psutil.cpu_percent(interval=None)
         except:
             last_value = 0
             logging.error("Cpu Utilization unavailable")
 
-        self.cpu_util = self.update_graph_val(self.cpu_util, last_value)
+        self.cpu_util = self.update_graph_val(self.cpu_util, self.cpu_usage())
 
     def update_freq(self):
         self.samples_taken += 1
@@ -189,6 +200,69 @@ class GraphData:
         values.append(new_val)
         return values[1:]
 
+    def update_dask_values(self):
+            self.worker_info = self.dask_client.scheduler_info()['workers']
+            self.currentValue['Memory']['total_memory'] = round(self.available_memory() / (1024**2),2)
+            self.currentValue['Memory']['used_memory']  = round(self.used_memory() / (1024**2),2)
+            self.currentValue['Memory']['used_memory_percent']  = self.currentValue['Memory']['used_memory'] / self.currentValue['Memory']['total_memory']
+            self.currentValue['CPU']['cpu_usage'] = self.cpu_usage()
+            self.currentValue['Cluster']['n_workers'] = self.num_workers()
+            self.currentValue['Cluster']['total_threads'] = self.num_workers()
+            self.currentValue['Workers'] = self.get_worker_stats()
+        
+    def num_workers(self):
+        return len(self.worker_info)
+    
+    def num_threads(self):
+        threads = [worker['nthreads'] for _, worker in self.worker_info.items()]
+        return(sum(threads))
+    
+    def available_memory(self):
+        tots = 0
+        for w, info in self.worker_info.items():
+            tots += info['memory_limit']
+        return tots
+    
+    def used_memory(self):
+        tots = 0
+        for w, info in self.worker_info.items():
+            tots += info['metrics']['memory']
+        return tots
+    
+    def get_worker_stats(self):
+        worker_stats=[]
+        for w, info in self.worker_info.items():
+            stats = {'user':'filler',
+                     'id' : 'filler',
+                     'name' : 'filler',
+                     'rawtime':1,
+                     'time':1,
+                     'command':'',
+                     'cpu':1,
+                     'memory':1,
+                     'local_ports':'filler'}
+            stats['address'] = w
+            stats['nthreads'] = info['nthreads']
+            stats['memory']   = round(info['metrics']['memory'] / (1024**2),2)
+            stats['memory_limit'] = round(info['memory_limit'] / (1024**2), 2)
+            stats['cpu']      = info['metrics']['cpu'] 
+            stats['read']     =  round(info['metrics']['read_bytes'] / (1024**2), 2)
+            stats['write']     = round(info['metrics']['write_bytes'] / (1024**2), 2)
+            
+            worker_stats.append(stats)
+        return worker_stats
+    
+    def cpu_usage(self):
+        """ 
+        Average cpu utilization across all workers
+        """
+        usages = []
+        for w, info in self.worker_info.items():
+            usages.append(info['metrics']['cpu'])
+        if len(usages)>0:
+            return sum(usages) / len(usages)
+        else:
+            return 0
 
 class GraphView(urwid.WidgetPlaceholder):
     """
@@ -235,7 +309,7 @@ class GraphView(urwid.WidgetPlaceholder):
     MAX_UTIL = 100
     MAX_TEMP = 100
 
-    def __init__(self, controller):
+    def __init__(self, controller, dask_address):
 
         self.controller = controller
         self.started = True
@@ -247,7 +321,7 @@ class GraphView(urwid.WidgetPlaceholder):
                            'line')
         self.mode_buttons = []
 
-        self.graph_data = GraphData(0)
+        self.graph_data = GraphData(0, dask_address = dask_address)
         self.graph_util = []
         self.graph_temp = []
         self.graph_freq = []
@@ -517,7 +591,7 @@ class GraphView(urwid.WidgetPlaceholder):
 
     def main_window(self):
         # Initiating the data
-        self.graph_util = self.bar_graph('util light', 'util dark', 'Utilization[%]', [], [0, 50, 100])
+        self.graph_util = self.bar_graph('util light', 'util dark', 'CPU Utilization Across all workers[%]', [], [0, 50, 100])
         self.graph_temp = self.bar_graph('temp dark', 'temp light', 'Temperature[C]', [], [0, 25, 50, 75, 100])
         
         # right window summary stats
@@ -569,11 +643,11 @@ class GraphController:
     A class responsible for setting up the model and view and running
     the application.
     """
-    def __init__(self):
+    def __init__(self, dask_address):
         self.loop = []
         self.animate_alarm = None
         self.mode = GraphMode()
-        self.view = GraphView(self)
+        self.view = GraphView(self, dask_address = dask_address)
         # use the first mode as the default
         mode = self.get_modes()[0]
         self.mode.set_mode(mode)
@@ -631,7 +705,7 @@ def main():
         root_logger.addHandler(file_handler)
         root_logger.setLevel(level)
 
-    GraphController().main()
+    GraphController(dask_address = args.dask_address).main()
 
 
 def get_args():
@@ -639,6 +713,18 @@ def get_args():
         description=INTRO_MESSAGE,
         formatter_class=argparse.RawTextHelpFormatter)
 
+    parser.add_argument('-a','--address',
+                            dest='dask_address',
+                            action='store',
+                            type=str,
+                            required=True,
+                            help=
+                            '''
+                                dask-distributed scheduler address.
+                                
+                                ie. 127.0.0.1:324597
+                            ''')
+                            
     parser.add_argument('-d', '--debug',
                         default=False, action='store_true', help="Output debug log to " + log_file)
     parser.add_argument('-v', '--version',
