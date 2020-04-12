@@ -21,9 +21,8 @@
 """A CLI interface for view dask distributed scheduler statistics"""
 
 import urwid
-from ComplexBarGraphs import ScalableBarGraph
-from ComplexBarGraphs import LabeledBarGraph
-from HelpMenu import HelpMenu
+from ext.complex_bar_graphs import ScalableBarGraph, LabeledBarGraph
+from help_menu import HelpMenu
 
 from dask.distributed import Client
 
