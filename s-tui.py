@@ -50,7 +50,6 @@ VERSION_MESSAGE = " s-tui " + str(VERSION) +\
                   Relased under GNU GPLv2"
 
 # globals
-is_admin = None
 
 INTRO_MESSAGE = "\
 ********s-tui manual********\n\
@@ -117,16 +116,6 @@ class GraphData:
         self.top_freq = "N/A"
         self.turbo_freq = False
 
-        if is_admin:
-            try:
-                num_cpus = psutil.cpu_count(logical=False)
-                available_freq = read_msr(TURBO_MSR, 0)
-                logging.debug(available_freq)
-                self.top_freq = float(available_freq[num_cpus - 1] * 100)
-                self.turbo_freq = True
-            except (IOError, OSError) as e:
-                logging.error(e.message)
-
         if self.top_freq is "N/A":
             try:
                 self.top_freq = psutil.cpu_freq().max
@@ -152,17 +141,9 @@ class GraphData:
             logging.error("Frequency unavailable")
 
         self.cpu_freq = self.update_graph_val(self.cpu_freq, self.cur_freq)
-
-        if is_admin and self.samples_taken > WAIT_SAMPLES:
-            self.perf_lost = int(self.top_freq) - int(self.cur_freq)
-            if self.top_freq is not "N/A":
-                self.perf_lost = round(float(self.perf_lost) / float(self.top_freq) * 100, 1)
-            else:
-                self.perf_lost = 0
-            if self.perf_lost > self.max_perf_lost:
-                self.max_perf_lost = self.perf_lost
-        elif not is_admin:
-            self.max_perf_lost = "N/A (no root)"
+        
+        # was an is_admin==True option
+        self.max_perf_lost = "N/A (no root)"
 
     def reset(self):
         self.overheat = False
@@ -649,16 +630,6 @@ def main():
         file_handler.setFormatter(log_formatter)
         root_logger.addHandler(file_handler)
         root_logger.setLevel(level)
-
-    global is_admin
-    try:
-        is_admin = os.getuid() == 0
-    except AttributeError:
-        is_admin = ctypes.windll.shell32.IsUserAnAdmin() != 0
-    if not is_admin:
-        print ("You are running without root permissions. Run as root for best results")
-        logging.info("Started without root permissions")
-        time.sleep(2)
 
     GraphController().main()
 
