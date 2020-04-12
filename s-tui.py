@@ -92,101 +92,52 @@ class GraphData:
     THRESHOLD_TEMP = 80
 
     def __init__(self, graph_num_bars, dask_address):
-        # Constants data
-        self.temp_max_value = 100
-        self.util_max_value = 100
-        self.graph_num_bars = graph_num_bars
-        # Data for graphs
-        self.cpu_util = [0] * graph_num_bars
-        self.cpu_temp = [0] * graph_num_bars
-        self.cpu_freq = [0] * graph_num_bars
-        # Data for statistics
-        self.overheat = False
-        self.overheat_detected = False
-        self.max_temp = 0
-        self.cur_temp = 0
-        self.cur_freq = 0
-        self.perf_lost = 0
-        self.max_perf_lost = 0
-        self.samples_taken = 0
-        self.core_num = "N/A"
-        try:
-            self.core_num = psutil.cpu_count()
-        except:
-            self.core_num = 1
-            logging.error("Num of cores unavailable")
-        self.top_freq = "N/A"
-        self.turbo_freq = False
-
-        if self.top_freq is "N/A":
-            try:
-                self.top_freq = psutil.cpu_freq().max
-                self.turbo_freq = False
-            except:
-                logging.error("Top frequency is not supported")
+        self.dask_client = Client(address = dask_address)        
         
-        self.dask_client = Client(address = dask_address)
         self.currentValue = {'Memory' :{'total_memory':0,
                                         'used_memory':0},
                              'CPU'    :{'cpu_usage':0},
                              'Cluster':{'n_workers':0,
                                         'total_threads':0},
                              'Workers':[]}
-
-    def update_util(self):
         self.update_dask_values()
-        try:
-            last_value = psutil.cpu_percent(interval=None)
-        except:
-            last_value = 0
-            logging.error("Cpu Utilization unavailable")
-
-        self.cpu_util = self.update_graph_val(self.cpu_util, self.cpu_usage())
-
-    def update_freq(self):
-        self.samples_taken += 1
-        try:
-            self.cur_freq = int(psutil.cpu_freq().current)
-        except:
-            self.cur_freq = 0
-            logging.error("Frequency unavailable")
-
-        self.cpu_freq = self.update_graph_val(self.cpu_freq, self.cur_freq)
         
-        # was an is_admin==True option
-        self.max_perf_lost = "N/A (no root)"
+        # Constants data
+        self.mem_max_value = self.currentValue['Memory']['total_memory']
+        self.util_max_value = 100
+        self.graph_num_bars = graph_num_bars
+        
+        # Data for graphs
+        self.cpu_util = [0] * graph_num_bars
+        self.mem_util = [0] * graph_num_bars
+        self.cpu_freq = [0] * graph_num_bars
+        # Data for statistics
+        self.n_workers = self.num_workers()
+        self.total_mem = self.currentValue['Memory']['total_memory']
+        self.used_mem  = self.currentValue['Memory']['used_memory']
+                
 
+
+    def update_all(self):
+        self.update_dask_values()
+        
+        self.n_workers = self.num_workers()
+        self.mem_max_value = self.currentValue['Memory']['total_memory']
+        self.total_mem  = self.currentValue['Memory']['total_memory']
+        self.used_mem      = self.currentValue['Memory']['used_memory']
+        
+        self.cpu_util = self.update_graph_val(self.cpu_util, self.cpu_usage())
+        self.mem_util = self.update_graph_val(self.mem_util, self.used_mem)
+        
+        
     def reset(self):
-        self.overheat = False
         self.cpu_util = [0] * self.graph_num_bars
         self.cpu_temp = [0] * self.graph_num_bars
         self.cpu_freq = [0] * self.graph_num_bars
-        self.max_temp = 0
-        self.cur_temp = 0
-        self.cur_freq = 0
-        self.perf_lost = 0
-        self.max_perf_lost = 0
-        self.samples_taken = 0
-        self.overheat_detected = False
-
-    def update_temp(self):
-        try:
-            last_value = psutil.sensors_temperatures()['acpitz'][0].current
-        except:
-            last_value = 0
-            logging.error("Temperature sensor unavailable")
-
-        self.cpu_temp = self.update_graph_val(self.cpu_temp, last_value)
-        # Update max temp
-        if last_value > int(self.max_temp):
-            self.max_temp = last_value
-        # Update current temp
-        self.cur_temp = last_value
-        if self.cur_temp >= self.THRESHOLD_TEMP:
-            self.overheat = True
-            self.overheat_detected = True
-        else:
-            self.overheat = False
+        
+        self.mem_max_value = 0
+        self.total_mem  = 0
+        self.used_mem      = 0
 
     def update_graph_val(self, values, new_val):
         values_num = len(values)
@@ -307,7 +258,6 @@ class GraphView(urwid.WidgetPlaceholder):
     GRAPH_OFFSET_PER_SECOND = 5
     SCALE_DENSITY = 5
     MAX_UTIL = 100
-    MAX_TEMP = 100
 
     def __init__(self, controller, dask_address):
 
@@ -322,9 +272,8 @@ class GraphView(urwid.WidgetPlaceholder):
         self.mode_buttons = []
 
         self.graph_data = GraphData(0, dask_address = dask_address)
-        self.graph_util = []
-        self.graph_temp = []
-        self.graph_freq = []
+        self.graph_cpu = []
+        self.graph_mem = []
         self.visible_graphs = []
         self.graph_place_holder = urwid.WidgetPlaceholder(urwid.Pile([]))
 
@@ -348,31 +297,21 @@ class GraphView(urwid.WidgetPlaceholder):
         tdelta = time.time() - self.start_time
         return int(self.offset + (tdelta * self.GRAPH_OFFSET_PER_SECOND))
 
-    def update_stats(self):
-        if self.controller.mode.current_mode == 'Regular Operation':
-            self.graph_data.max_perf_lost = 0
-        if self.graph_data.overheat_detected:
-            self.max_temp.set_text(('overheat dark', str(self.graph_data.max_temp) + DEGREE_SIGN + 'c'))
-        else:
-            self.max_temp.set_text(str(self.graph_data.max_temp) + DEGREE_SIGN + 'c')
-
-        self.cur_temp.set_text((self.temp_color[2], str(self.graph_data.cur_temp) + DEGREE_SIGN + 'c'))
-
-        self.top_freq.set_text(str(self.graph_data.top_freq) + 'MHz')
-        self.cur_freq.set_text(str(self.graph_data.cur_freq) + 'MHz')
-        self.perf_lost.set_text(str(self.graph_data.max_perf_lost) + '%')
+    def update_stats(self):      
+        self.n_workers_str.set_text(str(self.graph_data.n_workers))
+        self.used_mem_str.set_text(str(self.graph_data.used_mem))
+        self.total_mem_str.set_text(str(self.graph_data.total_mem))
 
     def update_graph(self, force_update=False):
-        self.graph_data.graph_num_bars = self.graph_util.bar_graph.get_size()[1]
+        self.graph_data.graph_num_bars = self.graph_cpu.bar_graph.get_size()[1]
 
         o = self.get_offset_now()
         if o == self.last_offset and not force_update:
             return False
         self.last_offset = o
 
-        self.graph_data.update_temp()
-        self.graph_data.update_util()
-        self.graph_data.update_freq()
+        self.graph_data.update_all()
+        
 
         # Updating CPU utilization
         l = []
@@ -383,36 +322,23 @@ class GraphView(urwid.WidgetPlaceholder):
                 l.append([0, value])
             else:
                 l.append([value, 0])
-        self.graph_util.bar_graph.set_data(l, self.graph_data.util_max_value)
-        y_label_size = self.graph_util.bar_graph.get_size()[0]
-        self.graph_util.set_y_label(self.get_label_scale(0, self.MAX_UTIL, y_label_size))
+        self.graph_cpu.bar_graph.set_data(l, self.graph_data.util_max_value)
+        y_label_size = self.graph_cpu.bar_graph.get_size()[0]
+        self.graph_cpu.set_y_label(self.get_label_scale(0, self.MAX_UTIL, y_label_size))
 
-        # Updating CPU temperature
+        # Updating Memory utilization
         l = []
         for n in range(self.graph_data.graph_num_bars):
-            value = self.graph_data.cpu_temp[n]
+            value = self.graph_data.mem_util[n]
             # toggle between two bar types
             if n & 1:
                 l.append([0, value])
             else:
                 l.append([value, 0])
-        self.graph_temp.bar_graph.set_data(l, self.graph_data.temp_max_value)
+        self.graph_mem.bar_graph.set_data(l, self.graph_data.mem_max_value)
 
-        y_label_size = self.graph_temp.bar_graph.get_size()[0]
-        self.graph_temp.set_y_label(self.get_label_scale(0, self.MAX_TEMP, y_label_size))
-
-        # Updating CPU frequency
-        l = []
-        for n in range(self.graph_data.graph_num_bars):
-            value = self.graph_data.cpu_freq[n]
-            # toggle between two bar types
-            if n & 1:
-                l.append([0, value])
-            else:
-                l.append([value, 0])
-        self.graph_freq.bar_graph.set_data(l, self.graph_data.top_freq)
-        y_label_size = self.graph_freq.bar_graph.get_size()[0]
-        self.graph_freq.set_y_label(self.get_label_scale(0, self.graph_data.top_freq, y_label_size))
+        y_label_size = self.graph_mem.bar_graph.get_size()[0]
+        self.graph_mem.set_y_label(self.get_label_scale(0, self.graph_data.mem_max_value, y_label_size))
 
         self.update_stats()
 
@@ -469,7 +395,7 @@ class GraphView(urwid.WidgetPlaceholder):
             satt = {(1, 0): 'util light smooth', (2, 0): 'util dark smooth'}
         else:
             satt = None
-        self.graph_util.bar_graph.set_segment_attributes(['bg background', 'util light', 'util dark'], satt=satt)
+        self.graph_cpu.bar_graph.set_segment_attributes(['bg background', 'util light', 'util dark'], satt=satt)
 
         if state:
             satt = {(1, 0): 'freq dark smooth', (2, 0): 'freq light smooth'}
@@ -529,38 +455,15 @@ class GraphView(urwid.WidgetPlaceholder):
             urwid.LineBox(unicode_checkbox),
             urwid.Divider(),
             urwid.LineBox(urwid.Pile([
-                urwid.CheckBox('Frequency', on_state_change=self.show_frequency),
-                urwid.CheckBox('Temperature', state=True, on_state_change=self.show_temprature),
-                urwid.CheckBox('Utilization', state=True, on_state_change=self.show_utilization)])),
+                urwid.Text("Placeholder #1", align ='left'),
+                urwid.Text("Placeholder #2", align = 'left')])),
             urwid.Divider(),
             self.button("Quit", self.exit_program),
             ]
 
         return buttons
 
-    def show_frequency(self, w, state):
-        if state:
-            self.visible_graphs[0] = self.graph_freq
-        else:
-            self.visible_graphs[0] = None
-        self.show_graphs()
-
-    def show_utilization(self, w, state):
-        if state:
-            self.visible_graphs[1] = self.graph_util
-        else:
-            self.visible_graphs[1] = None
-        self.show_graphs()
-
-    def show_temprature(self, w, state):
-        if state:
-            self.visible_graphs[2] = self.graph_temp
-        else:
-            self.visible_graphs[2] = None
-        self.show_graphs()
-
     def show_graphs(self):
-
         graph_list = []
         hline = urwid.AttrWrap(urwid.SolidFill(u'\N{LOWER ONE QUARTER BLOCK}'), 'line')
 
@@ -571,63 +474,40 @@ class GraphView(urwid.WidgetPlaceholder):
 
         self.graph_place_holder.original_widget = urwid.Pile(graph_list)
 
-    def graph_stats(self):
-        top_freq_string = "Top Freq"
-        if self.graph_data.turbo_freq:
-            top_freq_string += " " + str(self.graph_data.core_num) + " Cores"
-        else:
-            top_freq_string += " 1 Core"
-        fixed_stats = [urwid.Divider(), urwid.Text("Max Temp", align="left"),
-                       self.max_temp] + \
-                      [urwid.Divider(), urwid.Text("Cur Temp", align="left"),
-                       self.cur_temp] + \
-                      [urwid.Divider(), urwid.Text(top_freq_string, align="left"),
-                       self.top_freq] + \
-                      [urwid.Divider(), urwid.Text("Cur Freq", align="left"),
-                       self.cur_freq] + \
-                      [urwid.Divider(), urwid.Text("Max Perf Lost", align="left"),
-                       self.perf_lost]
+    def init_overview_stats(self):
+        # total mem, n workers, total threads
+        self.n_workers_str = urwid.Text(str(self.graph_data.n_workers), align="right")
+        self.used_mem_str  = urwid.Text(str(self.graph_data.used_mem), align="right")
+        self.total_mem_str = urwid.Text(str(self.graph_data.total_mem), align="right")
+        
+        fixed_stats = [urwid.Divider(), urwid.Text("# Workers", align="left"),
+                       self.n_workers_str] + \
+                      [urwid.Divider(), urwid.Text("Used Memory", align="left"),
+                       self.used_mem_str] + \
+                      [urwid.Divider(), urwid.Text('Total Memory', align="left"),
+                       self.total_mem_str]
+        
         return fixed_stats
-
+    
     def main_window(self):
         # Initiating the data
-        self.graph_util = self.bar_graph('util light', 'util dark', 'CPU Utilization Across all workers[%]', [], [0, 50, 100])
-        self.graph_temp = self.bar_graph('temp dark', 'temp light', 'Temperature[C]', [], [0, 25, 50, 75, 100])
+        self.graph_cpu = self.bar_graph('util light', 'util dark', 'CPU Utilization Across all workers[%]', [], [0, 50, 100])
+        self.graph_mem = self.bar_graph('temp dark', 'temp light', 'Used Memory', [], [0, 25, 50, 75, 100])
         
-        # right window summary stats
-        top_freq = self.graph_data.top_freq
-        one_third = 0
-        two_third = 0
-        try:
-            one_third = int(top_freq / 3)
-            two_third = int(2 * top_freq / 3)
-        except:
-            one_third = 0
-            two_third = 0
-            top_freq = 0
-        self.graph_freq = self.bar_graph('freq dark', 'freq light', 'Frequency[MHz]', [],
-                                         [0, one_third, two_third, top_freq])
-        self.max_temp = urwid.Text(str(self.graph_data.max_temp) + DEGREE_SIGN + 'c', align="right")
-        self.cur_temp = urwid.Text(str(self.graph_data.cur_temp) + DEGREE_SIGN + 'c', align="right")
-        self.top_freq = urwid.Text(str(self.graph_data.top_freq) + 'MHz', align="right")
-        self.cur_freq = urwid.Text(str(self.graph_data.cur_freq) + 'MHz', align="right")
-        self.perf_lost = urwid.Text(str(self.graph_data.max_perf_lost) + '%', align="right")
+        self.graph_data.graph_num_bars = self.graph_cpu.bar_graph.get_size()[1]
 
-        self.graph_data.graph_num_bars = self.graph_util.bar_graph.get_size()[1]
-
-        self.graph_util.bar_graph.set_bar_width(1)
-        self.graph_temp.bar_graph.set_bar_width(1)
-        self.graph_freq.bar_graph.set_bar_width(1)
+        self.graph_cpu.bar_graph.set_bar_width(1)
+        self.graph_mem.bar_graph.set_bar_width(1)
 
         vline = urwid.AttrWrap(urwid.SolidFill(u'\u2502'), 'line')
 
-        self.visible_graphs = [None, self.graph_util, self.graph_temp]
+        self.visible_graphs = [self.graph_cpu, self.graph_mem]
         self.show_graphs()
 
         graph_controls = self.graph_controls()
-        graph_stats = self.graph_stats()
+        overview_stats = self.init_overview_stats()
 
-        text_col = urwid.ListBox(urwid.SimpleListWalker(graph_controls + [urwid.Divider()] + graph_stats))
+        text_col = urwid.ListBox(urwid.SimpleListWalker(overview_stats + [urwid.Divider()] + graph_controls ))
 
         w = urwid.Columns([('weight', 2, self.graph_place_holder),
                            ('fixed',  1, vline),
