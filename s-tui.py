@@ -520,19 +520,6 @@ class GraphView(urwid.WidgetPlaceholder):
 
         self.update_graph(True)
 
-    def main_shadow(self, w):
-        """Wrap a shadow and background around widget w."""
-        bg = urwid.AttrWrap(urwid.SolidFill(u"\u2592"), 'screen edge')
-        shadow = urwid.AttrWrap(urwid.SolidFill(u" "), 'main shadow')
-
-        bg = urwid.Overlay(shadow, bg,
-                           ('fixed left', 3), ('fixed right', 1),
-                           ('fixed top', 2), ('fixed bottom', 1))
-        w = urwid.Overlay(w, bg,
-                          ('fixed left', 2), ('fixed right', 3),
-                          ('fixed top', 1), ('fixed bottom', 2))
-        return w
-
     def bar_graph(self, color_a, color_b, title, x_label, y_label):
 
         w = ScalableBarGraph(['bg background', color_a, color_b])
@@ -654,6 +641,8 @@ class GraphView(urwid.WidgetPlaceholder):
         # Initiating the data
         self.graph_util = self.bar_graph('util light', 'util dark', 'Utilization[%]', [], [0, 50, 100])
         self.graph_temp = self.bar_graph('temp dark', 'temp light', 'Temperature[C]', [], [0, 25, 50, 75, 100])
+        
+        # right window summary stats
         top_freq = self.graph_data.top_freq
         one_third = 0
         two_third = 0
@@ -693,11 +682,7 @@ class GraphView(urwid.WidgetPlaceholder):
                            ('fixed',  20, text_col)],
                           dividechars=1, focus_column=2)
 
-        w = urwid.Padding(w, ('fixed left', 1), ('fixed right', 0))
-        w = urwid.AttrWrap(w, 'body')
-        w = urwid.LineBox(w)
-        w = urwid.AttrWrap(w, 'line')
-        self.main_window_w = self.main_shadow(w)
+        self.main_window_w = w
         return self.main_window_w
 
 
