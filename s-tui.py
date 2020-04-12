@@ -342,7 +342,7 @@ class GraphView(urwid.WidgetPlaceholder):
             else:
                 l.append([value, 0])
         self.graph_temp.bar_graph.set_data(l, self.graph_data.temp_max_value)
-        self.set_temp_color()
+
         y_label_size = self.graph_temp.bar_graph.get_size()[0]
         self.graph_temp.set_y_label(self.get_label_scale(0, self.MAX_TEMP, y_label_size))
 
@@ -360,31 +360,6 @@ class GraphView(urwid.WidgetPlaceholder):
         self.graph_freq.set_y_label(self.get_label_scale(0, self.graph_data.top_freq, y_label_size))
 
         self.update_stats()
-
-    def set_temp_color(self, smooth=None):
-        if self.graph_data.overheat:
-            new_color = (['bg background', 'high temp dark', 'high temp light'],
-                         {(1, 0): 'high temp dark smooth', (2, 0): 'high temp light smooth'},
-                         'high temp txt')
-        else:
-            new_color = (['bg background', 'temp dark', 'temp light'],
-                         {(1, 0): 'temp dark smooth', (2, 0): 'temp light smooth'},
-                         'line')
-
-        if new_color[2] == self.temp_color[2] and smooth is None:
-            return
-
-        if smooth is None:
-            if self.temp_color[1] is None:
-                self.temp_color = (new_color[0], None, new_color[2])
-            else:
-                self.temp_color = new_color
-        elif smooth:
-            self.temp_color = new_color
-        else:
-            self.temp_color = (new_color[0], None, new_color[2])
-
-        self.graph_temp.bar_graph.set_segment_attributes(self.temp_color[0], satt=self.temp_color[1])
 
     def get_label_scale(self, min, max, size):
 
@@ -440,8 +415,6 @@ class GraphView(urwid.WidgetPlaceholder):
         else:
             satt = None
         self.graph_util.bar_graph.set_segment_attributes(['bg background', 'util light', 'util dark'], satt=satt)
-
-        self.set_temp_color(smooth=state)
 
         if state:
             satt = {(1, 0): 'freq dark smooth', (2, 0): 'freq light smooth'}
