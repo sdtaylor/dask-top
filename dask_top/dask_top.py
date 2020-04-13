@@ -67,7 +67,8 @@ class GraphData:
         self.total_mem = self.currentValue['Memory']['total_memory']
         self.used_mem  = self.currentValue['Memory']['used_memory']
                 
-
+    def close_con(self):
+        self.dask_client.close()
 
     def update_all(self):
         self.update_dask_values()
@@ -343,6 +344,7 @@ class GraphView(urwid.WidgetPlaceholder):
         return w
 
     def exit_program(self, w):
+        self.graph_data.close_con()
         raise urwid.ExitMainLoop()
 
     def graph_controls(self):
